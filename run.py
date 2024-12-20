@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataloader.dataset import MyData, custom_collate_fn
-from model.model import UMEPP as Model
+from model.model import FMOE as Model
 from utils.metrics import compute_metrics
 from utils.parsers import build_parser
 from utils.optim import get_optim
@@ -131,7 +131,7 @@ def train_val_test(args):
                                 lr=args.lr,
                                 weight_decay=args.weight_decay,
                                 warmup_rate=args.warmup_rate)
-    min_total_valid_loss = 1008611
+    min_total_valid_loss = 1234567
     min_turn = 0
     init_turn = 0
 
@@ -149,14 +149,15 @@ def train_val_test(args):
     for i in range(args.epochs - init_turn):
         logger.info(
             f"-----------------------------------Epoch {i + 1 + init_turn} Start!-----------------------------------")
-
+        first_stage = True if i < 10 else False
         min_train_loss, total_valid_loss = run_one_epoch(model=model,
                                                          optim=optim,
                                                          scheduler=scheduler,
                                                          train_data_loader=train_data_loader,
                                                          valid_data_loader=valid_data_loader,
                                                          loss_ratio=args.loss_ratio,
-                                                         device=args.device
+                                                         device=args.device,
+                                                         first_stage=first_stage
                                                          )
 
         logger.info(f"[ Epoch {i + 1 + init_turn} (train) ]: loss = {min_train_loss}")
@@ -206,7 +207,7 @@ def train_val_test(args):
         for batch in tqdm(test_data_loader, desc='Testing Progress'):
             batch = [item.to(args.device) if isinstance(item, torch.Tensor) else item for item in batch]
             v_f_seq, t_f, a_f, label, _ = batch
-            output, loss_kl, loss_u = model(v_f_seq=v_f_seq, t_f=t_f, a_f=a_f,training=False)
+            output, loss_kl, loss_u = model(v_f_seq=v_f_seq, t_f=t_f, a_f=a_f,first_stage=False)
             MAE, SRC, nMSE, PCC = compute_metrics(output, label)
             
             total_MAE += MAE
@@ -224,49 +225,79 @@ def train_val_test(args):
     logger.info("Finished Testing!")
 
 
-def run_one_epoch(model, optim, scheduler, train_data_loader, valid_data_loader, loss_ratio, device):
+def run_one_epoch(model, optim, scheduler, train_data_loader, valid_data_loader, loss_ratio, device,first_stage):
     model.train()
-    min_train_loss = 1008611
+    min_train_loss = 1234567
     for batch in tqdm(train_data_loader, desc='Training Progress'):
         batch = [item.to(device) if isinstance(item, torch.Tensor) else item for item in batch]
         v_f_seq, t_f, a_f, label, item_id = batch
-        loss = model.compute_loss(
-            v_f_seq=v_f_seq,
-            t_f=t_f,
-            a_f=a_f,
-            label=label,
-            loss_ratio=loss_ratio,
-            training=True
-        )
+        if first_stage:
+            loss_t, loss_v, loss_a = model.compute_loss(
+                v_f_seq=v_f_seq,
+                t_f=t_f,
+                a_f=a_f,
+                label=label,
+                loss_ratio=loss_ratio,
+                first_stage=first_stage
+            )
 
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        scheduler.step()
+            optim.zero_grad()
+            loss_t.backward()
+            loss_v.backward()
+            loss_a.backward()
+            optim.step()
+            scheduler.step()
+            loss=(loss_t+loss_v+loss_a)/3
+        else:
+            loss = model.compute_loss(
+                v_f_seq=v_f_seq,
+                t_f=t_f,
+                a_f=a_f,
+                label=label,
+                loss_ratio=loss_ratio,
+                first_stage=first_stage
+            )
+
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            scheduler.step()
 
         if min_train_loss > loss:
             min_train_loss = loss
 
     model.eval()
     total_valid_loss = 0
+    
     with torch.no_grad():
         for batch in tqdm(valid_data_loader, desc='Validating Progress'):
             batch = [item.to(device) if isinstance(item, torch.Tensor) else item for item in batch]
             v_f_seq, t_f, a_f, label, _ = batch
-            loss = model.compute_loss(
-                v_f_seq=v_f_seq,
-                t_f=t_f,
-                label=label,
-                a_f=a_f,
-                loss_ratio=loss_ratio,
-                training=False
-            )
+            if first_stage:
+                loss_t, loss_v, loss_a = model.compute_loss(
+                    v_f_seq=v_f_seq,
+                    t_f=t_f,
+                    label=label,
+                    a_f=a_f,
+                    loss_ratio=loss_ratio,
+                    first_stage=first_stage
+                )
+                loss=(loss_t+loss_v+loss_a)/3
+            else:
+                loss = model.compute_loss(
+                    v_f_seq=v_f_seq,
+                    t_f=t_f,
+                    label=label,
+                    a_f=a_f,
+                    loss_ratio=loss_ratio,
+                    first_stage=first_stage
+                )
             total_valid_loss += loss
     return min_train_loss, total_valid_loss
 
 
 def main():
-    parser = build_parser('UMEPP')
+    parser = build_parser('FMOE')
     args = parser.parse_args()
     seed_init(args.seed)
     train_val_test(args)
