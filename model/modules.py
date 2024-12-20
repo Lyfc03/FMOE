@@ -204,7 +204,7 @@ class ModalFuseModule(nn.Module):
         sigma=torch.cat([sigma_t, sigma_v, sigma_a], dim=-1)
         return joint, sigma, loss_kl
 
-    def forward(self, t_f: Tensor, v_f: Tensor, a_f: Tensor,training=True):
+    def forward(self, t_f: Tensor, v_f: Tensor, a_f: Tensor,first_stage=True):
         B, seq_len, _= v_f.shape
         result = torch.empty_like(a_f)
         result[a_f <= 0] = torch.exp(a_f[a_f <= 0])-1  
@@ -218,52 +218,55 @@ class ModalFuseModule(nn.Module):
         x_a = self.a_in_proj(a_f)
         
         
-        if training:
-            x_t_pre = x_t + self.Transformer_t(x_t)
-            x_v_pre = x_v + self.Transformer_v(x_v)
-            x_a_pre = x_a + self.Transformer_a(x_a)
-        
-        weight_t, weight_v, weight_a= self.router_t(x_t), self.router_v(x_v), self.router_a(x_a)
-        weight_t = torch.softmax(weight_t, dim=-1)
-        weight_v = torch.softmax(weight_v, dim=-1)
-        weight_a = torch.softmax(weight_a, dim=-1)
-        
-        x_t, sigma_t, kl_t = self.joint(x_t)
-        x_v, sigma_v, kl_v = self.joint(x_v)
-        x_a, sigma_a, kl_a = self.joint(x_a)
-        loss_kl = (kl_t + kl_v + kl_a)/3
-        
-        weight_a = weight_a.unsqueeze(-1).repeat(1, 1, 1, self.h_dim)
-        weight_t = weight_t.unsqueeze(-1).repeat(1, 1, 1, self.h_dim)
-        weight_v = weight_v.unsqueeze(-1).repeat(1, 1, 1, self.h_dim)
-        
-        x_unweighted_a = x_a.reshape(B, seq_len, 3, self.h_dim)
-        x_unweighted_t = x_t.reshape(B, seq_len, 3, self.h_dim)
-        x_unweighted_v = x_v.reshape(B, seq_len, 3, self.h_dim)
-        
-        x_out_a = torch.sum(weight_a * x_unweighted_a, dim=2)
-        x_out_t = torch.sum(weight_t * x_unweighted_t, dim=2)
-        x_out_v = torch.sum(weight_v * x_unweighted_v, dim=2)
-        
-        Uncertainty_a = sigma_a.reshape(B, seq_len, 3, self.h_dim)
-        Uncertainty_t = sigma_t.reshape(B, seq_len, 3, self.h_dim)
-        Uncertainty_v = sigma_v.reshape(B, seq_len, 3, self.h_dim)
-        
-        loss_u_a = torch.sum(weight_a * Uncertainty_a, dim=2).mean()
-        loss_u_t = torch.sum(weight_t * Uncertainty_t, dim=2).mean()
-        loss_u_v = torch.sum(weight_v * Uncertainty_v, dim=2).mean()
-        
-        loss_u = loss_u_t + loss_u_v + loss_u_a
-        loss_u = loss_u/3
+        if first_stage:
+            x_out_t = x_t + self.Transformer_t(x_t)
+            x_out_v = x_v + self.Transformer_v(x_v)
+            x_out_a = x_a + self.Transformer_a(x_a)
+        else:
+            weight_t, weight_v, weight_a= self.router_t(x_t), self.router_v(x_v), self.router_a(x_a)
+            weight_t = torch.softmax(weight_t, dim=-1)
+            weight_v = torch.softmax(weight_v, dim=-1)
+            weight_a = torch.softmax(weight_a, dim=-1)
+            
+            x_t, sigma_t, kl_t = self.joint(x_t)
+            x_v, sigma_v, kl_v = self.joint(x_v)
+            x_a, sigma_a, kl_a = self.joint(x_a)
+            loss_kl = (kl_t + kl_v + kl_a)/3
+            
+            weight_a = weight_a.unsqueeze(-1).repeat(1, 1, 1, self.h_dim)
+            weight_t = weight_t.unsqueeze(-1).repeat(1, 1, 1, self.h_dim)
+            weight_v = weight_v.unsqueeze(-1).repeat(1, 1, 1, self.h_dim)
+            
+            x_unweighted_a = x_a.reshape(B, seq_len, 3, self.h_dim)
+            x_unweighted_t = x_t.reshape(B, seq_len, 3, self.h_dim)
+            x_unweighted_v = x_v.reshape(B, seq_len, 3, self.h_dim)
+            
+            x_out_a = torch.sum(weight_a * x_unweighted_a, dim=2)
+            x_out_t = torch.sum(weight_t * x_unweighted_t, dim=2)
+            x_out_v = torch.sum(weight_v * x_unweighted_v, dim=2)
+            
+            Uncertainty_a = sigma_a.reshape(B, seq_len, 3, self.h_dim)
+            Uncertainty_t = sigma_t.reshape(B, seq_len, 3, self.h_dim)
+            Uncertainty_v = sigma_v.reshape(B, seq_len, 3, self.h_dim)
+            
+            loss_u_a = torch.sum(weight_a * Uncertainty_a, dim=2).mean()
+            loss_u_t = torch.sum(weight_t * Uncertainty_t, dim=2).mean()
+            loss_u_v = torch.sum(weight_v * Uncertainty_v, dim=2).mean()
+            
+            loss_u = loss_u_t + loss_u_v + loss_u_a
+            loss_u = loss_u/3
             
         V_f_star, T_f_star, A_f_star = self.uni_modal_attention(x_out_v, x_out_t, x_out_a)
-        available_types = list(self.available_type)
-        type_tensors = {
-            'T': T_f_star,
-            'V': V_f_star,
-            'A': A_f_star,
-        }
-        tensors_to_cat = [type_tensors[t] for t in available_types]
-        available_tensor = torch.cat(tensors_to_cat, dim=-1)
-        return available_tensor,loss_kl, loss_u
+        if first_stage:
+            return T_f_star, V_f_star, A_f_star
+        else:
+            available_types = list(self.available_type)
+            type_tensors = {
+                'T': T_f_star,
+                'V': V_f_star,
+                'A': A_f_star,
+            }
+            tensors_to_cat = [type_tensors[t] for t in available_types]
+            available_tensor = torch.cat(tensors_to_cat, dim=-1)
+            return available_tensor,loss_kl, loss_u
  
