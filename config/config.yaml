@@ -2,12 +2,12 @@ TRAIN:
   DEVICE: "cuda:0"
   MultiGPU: False
   NUM_WORKERS: 2
-  LOSS_RATIO: {'kl':0.4,'u':0.01}
-  DATASET: "MICROLENS"
+  LOSS_RATIO: {'kl':0,'u':0}
+  DATASET: "TIKTOK"
   SEED: 2024
   BATCH_SIZE: 64
-  MAX_EPOCH: 20
-  EARLY_STOP_TURNS: 5
+  MAX_EPOCH: 30
+  EARLY_STOP_TURNS: 10
   SAVE_PATH: "ckpt"
 
 TEST:
@@ -18,11 +18,11 @@ CHECKPOINTS:
   PATH: "ckpt/train_tiktok/checkpoint_1_epoch.pkl"
 
 MODEL:
-  MODEL_ID: "UMEPP"
+  MODEL_ID: "FMOE"
   V_DIM: 768
   T_DIM: 768
   A_DIM: 128
-  H_DIM: 512
+  H_DIM: 256
   DROPOUT: 0.2
 
 OPTIM:
@@ -33,7 +33,7 @@ OPTIM:
 
 DATASET:
   CONFIG:
-    AVAILABLE_TYPE: "TVA"
+    AVAILABLE_TYPE: "TV"
   MICROLENS:
     DATASET_ID: "microlens"
     PATH: "data/microlens"
