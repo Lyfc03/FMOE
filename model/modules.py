@@ -206,12 +206,6 @@ class ModalFuseModule(nn.Module):
 
     def forward(self, t_f: Tensor, v_f: Tensor, a_f: Tensor,first_stage=True):
         B, seq_len, _= v_f.shape
-        result = torch.empty_like(a_f)
-        result[a_f <= 0] = torch.exp(a_f[a_f <= 0])-1  
-        result[a_f > 0] = 1 - torch.exp(-a_f[a_f > 0])
-        a_f = result
-        t_f = t_f.unsqueeze(1).repeat(1, seq_len, 1)
-        a_f = a_f.unsqueeze(1).repeat(1, seq_len, 1)
         
         x_t = self.t_in_proj(t_f)
         x_v = self.v_in_proj(v_f)
