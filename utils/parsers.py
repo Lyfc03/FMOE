@@ -14,7 +14,7 @@ def build_parser(mode):
 
     parser = argparse.ArgumentParser()
 
-    if mode == 'UMEPP':
+    if mode == 'FMOE':
         config = load_yaml(r'config/config.yaml')
         parser.add_argument('--seed', type=int, default=config['TRAIN']['SEED'])
         parser.add_argument('--num_workers', type=str, default=config['TRAIN']['NUM_WORKERS'])
